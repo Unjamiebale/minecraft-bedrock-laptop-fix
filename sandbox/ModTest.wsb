@@ -1,0 +1,18 @@
+<Configuration>
+  <Networking>Disable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Mouse_Fix_Minecraft</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\mod</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>C:\Mouse_Fix_Minecraft\sandbox\results</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\results</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\WDAGUtilityAccount\Desktop\mod\sandbox\Test-InSandbox.ps1</Command>
+  </LogonCommand>
+</Configuration>

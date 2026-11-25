@@ -1,6 +1,9 @@
 # Minecraft Bedrock laptop optimizer + mouse input fix
 # Run via RUN-ME.bat (right-click > Run as administrator for the power tweaks).
 # Everything changed is backed up to .\backup so Revert-Minecraft.ps1 can undo it.
+# Run again any time to switch input device. Non-interactive: -InputMode Laptop
+
+param([ValidateSet('Controller', 'UsbMouseKeyboard', 'Laptop')][string]$InputMode)
 
 $ErrorActionPreference = 'Continue'
 $root   = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,26 +22,79 @@ function Set-Reg($path, $name, $value, $type = 'DWord') {
     Set-ItemProperty -Path $path -Name $name -Value $value -Type $type
 }
 
-Write-Host "`n=== MOUSE INPUT FIXES ===" -ForegroundColor Cyan
+function Restore-Reg($path, $name) {
+    $b = $script:regBackup | Where-Object { $_.Path -eq $path -and $_.Name -eq $name } | Select-Object -First 1
+    if (-not $b) { return }   # never changed by us
+    if ($b.Existed) { Set-ItemProperty -Path $path -Name $name -Value $b.Old -Type $b.Type }
+    else { Remove-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue }
+}
 
-# 1. Touchpad palm rejection: Windows ignores touchpad clicks/taps while keys are held
-#    (i.e. while you're walking with WASD). 0 = "Most sensitive" = never ignore.
-Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PrecisionTouchPad' 'AAPThreshold' 0
-Write-Host " [OK] Touchpad: clicks no longer ignored while keys are held"
+# ---------- Input device setting ----------
+$modes = [ordered]@{
+    '1' = @{ Id = 'Controller';       Label = 'Controller (USB)' }
+    '2' = @{ Id = 'UsbMouseKeyboard'; Label = 'Mouse and keyboard (USB)' }
+    '3' = @{ Id = 'Laptop';           Label = 'Built-in laptop keyboard and touchpad' }
+}
+if (-not $InputMode) {
+    $current = Get-Content (Join-Path $backup 'mode.txt') -ErrorAction SilentlyContinue
+    Write-Host "`n=== INPUT DEVICE ===" -ForegroundColor Cyan
+    foreach ($k in $modes.Keys) {
+        $mark = if ($modes[$k].Id -eq $current) { '  <- current' } else { '' }
+        Write-Host "  [$k] $($modes[$k].Label)$mark"
+    }
+    $tries = 0
+    do {
+        $pick = "$(Read-Host 'What will you play Minecraft with? (1/2/3)')".Trim()
+        if (++$tries -ge 5 -and -not $modes.Contains($pick)) { Write-Host 'No valid choice - nothing changed.' -ForegroundColor Red; return }
+    } until ($modes.Contains($pick))
+    $InputMode = $modes[$pick].Id
+}
+$InputMode | Set-Content (Join-Path $backup 'mode.txt')
+$label = ($modes.Values | Where-Object { $_.Id -eq $InputMode }).Label
+Write-Host "`n=== INPUT FIXES: $label ===" -ForegroundColor Cyan
 
-# 2. Enhanced pointer precision (mouse acceleration) off - makes aiming consistent
-Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseSpeed'      '0' 'String'
-Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold1' '0' 'String'
-Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold2' '0' 'String'
-Write-Host " [OK] Mouse acceleration (enhanced pointer precision) disabled"
+$tp = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PrecisionTouchPad'
+$ms = 'HKCU:\Control Panel\Mouse'
 
-# 3. USB selective suspend off - stops USB mice from 'sleeping' and dropping inputs
-$scheme = (powercfg /getactivescheme) -replace '.*GUID:\s*([0-9a-f-]+).*', '$1'
-"$scheme" | Set-Content (Join-Path $backup 'powerscheme.txt')
-powercfg /setacvalueindex $scheme 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 2>$null
-powercfg /setdcvalueindex $scheme 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 2>$null
-powercfg /setactive $scheme 2>$null
-Write-Host " [OK] USB selective suspend disabled (if this failed, re-run as administrator)"
+# Touchpad palm rejection: Windows ignores touchpad clicks/taps while keys are held
+# (i.e. while walking with WASD). 0 = "Most sensitive" = never ignore.
+if ($InputMode -eq 'Laptop') {
+    Set-Reg $tp 'AAPThreshold' 0
+    Write-Host " [OK] Touchpad: clicks no longer ignored while keys are held"
+} else { Restore-Reg $tp 'AAPThreshold' }
+
+# Turn the touchpad off while a USB mouse is plugged in (no accidental palm touches)
+if ($InputMode -eq 'UsbMouseKeyboard') {
+    Set-Reg $tp 'LeaveOnWithMouse' 0
+    Write-Host " [OK] Touchpad turns off while a USB mouse is connected"
+} else { Restore-Reg $tp 'LeaveOnWithMouse' }
+
+# Enhanced pointer precision (mouse acceleration) off - consistent aiming
+if ($InputMode -ne 'Controller') {
+    Set-Reg $ms 'MouseSpeed'      '0' 'String'
+    Set-Reg $ms 'MouseThreshold1' '0' 'String'
+    Set-Reg $ms 'MouseThreshold2' '0' 'String'
+    Write-Host " [OK] Mouse acceleration (enhanced pointer precision) disabled"
+} else { foreach ($n in 'MouseSpeed','MouseThreshold1','MouseThreshold2') { Restore-Reg $ms $n } }
+
+# USB selective suspend off - stops USB devices 'sleeping' and dropping inputs
+$usbFlag = Join-Path $backup 'powerscheme.txt'
+$usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+if ($InputMode -ne 'Laptop') {
+    $scheme = (powercfg /getactivescheme) -replace '.*GUID:\s*([0-9a-f-]+).*', '$1'
+    if (-not (Test-Path $usbFlag)) { "$scheme" | Set-Content $usbFlag }
+    powercfg /setacvalueindex $scheme $usbSub $usbSet 0 2>$null
+    powercfg /setdcvalueindex $scheme $usbSub $usbSet 0 2>$null
+    powercfg /setactive $scheme 2>$null
+    Write-Host " [OK] USB selective suspend disabled (if this failed, re-run as administrator)"
+} elseif (Test-Path $usbFlag) {
+    $s = (Get-Content $usbFlag).Trim()
+    powercfg /setacvalueindex $s $usbSub $usbSet 1 2>$null
+    powercfg /setdcvalueindex $s $usbSub $usbSet 1 2>$null
+    powercfg /setactive $s 2>$null
+    Remove-Item $usbFlag
+    Write-Host " [OK] USB selective suspend set back to Windows default (not needed for laptop mode)"
+}
 
 Write-Host "`n=== WINDOWS PERFORMANCE ===" -ForegroundColor Cyan
 
@@ -93,8 +149,14 @@ if (-not $optionFiles) { Write-Host " [--] No options.txt found. Launch Minecraf
 $i = 0
 foreach ($f in $optionFiles) {
     $i++
-    Copy-Item $f.FullName (Join-Path $backup "options_$i.txt") -Force
-    "$($f.FullName)" | Set-Content (Join-Path $backup "options_$i.path")
+    # Keep the ORIGINAL backup if this script is run more than once
+    $existing = Get-ChildItem $backup -Filter 'options_*.path' -ErrorAction SilentlyContinue |
+        Where-Object { (Get-Content $_.FullName).Trim() -eq $f.FullName }
+    if (-not $existing) {
+        while (Test-Path (Join-Path $backup "options_$i.path")) { $i++ }
+        Copy-Item $f.FullName (Join-Path $backup "options_$i.txt") -Force
+        "$($f.FullName)" | Set-Content (Join-Path $backup "options_$i.path")
+    }
     $lines = Get-Content $f.FullName
     $changed = 0
     $lines = foreach ($l in $lines) {
