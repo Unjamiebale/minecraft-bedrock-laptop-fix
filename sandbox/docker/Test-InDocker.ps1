@@ -115,8 +115,15 @@ Check-Common Laptop
 # --- 5. Menu with bad input must not crash or change anything ---
 $beforeMenu = ($global:FakeReg.GetEnumerator() | Sort-Object Name | Out-String)
 $results += '=== MENU: no valid answer ==='
-$menuOut = 'x', '', '9', 'abc', '' | pwsh -NoProfile -Command '& /tmp/modtest/Optimize-Minecraft.ps1' *>&1 | Out-String
+$menuOut = 'x', '0', '9', 'abc', '4' | pwsh -NoProfile -Command '& /tmp/modtest/Optimize-Minecraft.ps1' *>&1 | Out-String
 Check 'Gives up cleanly'               ($menuOut -match 'No valid choice') True
+Check 'Mode unchanged after bad input' (Get-Content /tmp/modtest/backup/mode.txt) Laptop
+
+# --- 5b. Pressing Enter picks the default (2 = USB mouse + keyboard) ---
+$results += '=== MENU: Enter = default ==='
+$menuOut = '' | pwsh -NoProfile -Command '& /tmp/modtest/Optimize-Minecraft.ps1' *>&1 | Out-String
+Check 'Menu shows default'             ($menuOut -match '\[2\] Mouse and keyboard \(USB\)  \(default\)') True
+Check 'Enter picked USB mouse mode'    (Get-Content /tmp/modtest/backup/mode.txt) UsbMouseKeyboard
 
 # --- 6. Switch to USB again, then REVERT everything ---
 Run-Mode UsbMouseKeyboard | Out-Null

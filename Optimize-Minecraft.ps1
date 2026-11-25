@@ -39,12 +39,14 @@ if (-not $InputMode) {
     $current = Get-Content (Join-Path $backup 'mode.txt') -ErrorAction SilentlyContinue
     Write-Host "`n=== INPUT DEVICE ===" -ForegroundColor Cyan
     foreach ($k in $modes.Keys) {
-        $mark = if ($modes[$k].Id -eq $current) { '  <- current' } else { '' }
+        $mark = if ($k -eq '2') { '  (default)' } else { '' }
+        if ($modes[$k].Id -eq $current) { $mark += '  <- current' }
         Write-Host "  [$k] $($modes[$k].Label)$mark"
     }
     $tries = 0
     do {
-        $pick = "$(Read-Host 'What will you play Minecraft with? (1/2/3)')".Trim()
+        $pick = "$(Read-Host 'What will you play Minecraft with? (1/2/3, Enter = 2)')".Trim()
+        if ($pick -eq '') { $pick = '2' }
         if (++$tries -ge 5 -and -not $modes.Contains($pick)) { Write-Host 'No valid choice - nothing changed.' -ForegroundColor Red; return }
     } until ($modes.Contains($pick))
     $InputMode = $modes[$pick].Id
